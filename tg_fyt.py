@@ -2,50 +2,87 @@ import asyncio
 from telethon import TelegramClient, events
 
 # --- CONFIGURATION ---
-# [IMPORTANT] my.telegram.org se nikali hui apni real ID aur Hash yahan set karein
-API_ID = 39630731        # Bina quotes ke apni API ID dalo (e.g., 2847592)
-API_HASH = "ea47c620b13cf4316bf69956a8e6eba8"   # Inverted commas ke andar apna API HASH dalo
+# [REAL MATRIX] Aapki real API ID aur HASH pehle se linked h
+API_ID =   39630731     
+API_HASH = "ea47c620b13cf4316bf69956a8e6eba8"  # Aapka default API HASH set h
+
+# [BOT ARMY MATRIX] Aapne jo 5 tokens diye hain, vo yahan perfectly aligned hain
+BOT_TOKENS = [
+    "8959720350:AAGmLRHJkWrWe12eKpQWI9B9vOW5VKZzlnw",
+    "8971859921:AAGSA4NHyxpgcnpSK2xzVbbJ0CtZgu8DNW0",
+    "8653014765:AAE7jW7YW2WhgQPZmxhgk-6WH91M1lD8T9k",
+    "8919356174:AAFujh7HE2Vc5eb9Ua5D2B195t-mBIbo2P4",
+    "8942102372:AAGCMKaR44XX63MfwyN0YJ_zxX5brjkxi1o"
+]
+
+DELAY = 0.2 # Ek sath 5 bots se parallel data transfer gap
 # ---------------------
 
-client = TelegramClient('vans_session', API_ID, API_HASH)
 is_fighting = {}
-spam_text = {}
+spam_lines = {}
+bot_clients = []
 
-@client.on(events.NewMessage(pattern=r'\.fyt(?:\s+(.+))?', outgoing=True))
-async def start_fyt(event):
-    chat_id = event.chat_id
-    text_to_spam = event.pattern_match.group(1)
-
-    if not text_to_spam:
-        await event.respond("❌ **Bhai custom message to dalo!**\nExample: `.fyt Teri speed slow h`")
-        return
-
-    if is_fighting.get(chat_id, False):
-        await event.respond("⚠️ **Bot pehle se hi isi chat me chal rha h!**")
-        return
-
-    is_fighting[chat_id] = True
-    spam_text[chat_id] = text_to_spam
-    await event.respond(f"🚀 **Cloud Loader Activated!**\n🎯 Target Message: `{text_to_spam}`")
-
-    while is_fighting.get(chat_id, False):
+async def start_all_bots():
+    print(f"⚙️ Total {len(BOT_TOKENS)} Bots ko connect kiya ja rha h...")
+    for idx, token in enumerate(BOT_TOKENS):
         try:
-            await client.send_message(chat_id, spam_text[chat_id])
-            await asyncio.sleep(0.3) # 0.3 second ka super-fast cloud gap
+            # Har bot ke liye separate internal connection line build karna
+            client = TelegramClient(f'bot_army_session_{idx}', API_ID, API_HASH)
+            await client.start(bot_token=token)
+            bot_clients.append(client)
+            print(f"✅ Bot {idx + 1} Matrix me online ho gaya h!")
         except Exception as e:
-            print(f"⚠️ Telegram Filter triggered, 2 second hold: {e}")
-            await asyncio.sleep(2)
+            print(f"❌ Bot token galat h ya link nahi hua: {e}")
 
-@client.on(events.NewMessage(pattern=r'\.stop', outgoing=True))
-async def stop_fyt(event):
-    chat_id = event.chat_id
-    if is_fighting.get(chat_id, False):
-        is_fighting[chat_id] = False
-        await event.respond("🛑 **Cloud Loader Successfully Stopped!**")
+    for client in bot_clients:
+        @client.on(events.NewMessage(pattern=r'\.fyt(?:\s+(.+))?'))
+        async def start_fyt(event):
+            chat_id = event.chat_id
+            raw_text = event.pattern_match.group(1)
+
+            if not raw_text:
+                await event.respond("❌ **Bhai custom messages to dalo!**\nExample: `.fyt msg1 | msg2`")
+                return
+
+            if is_fighting.get(chat_id, False):
+                return
+
+            # Danda (|) split mechanism configured
+            messages_list = [line.strip() for line in raw_text.split('|') if line.strip()]
+            is_fighting[chat_id] = True
+            spam_lines[chat_id] = messages_list
+            
+            await event.respond(f"🤖 **5-Bot Army Spammer Activated! Loaded {len(messages_list)} lines.**")
+
+            while is_fighting.get(chat_id, False):
+                for msg in spam_lines[chat_id]:
+                    if not is_fighting.get(chat_id, False):
+                        break
+                    
+                    # 5 Bots se ek sath parallel request fire karna
+                    tasks = [bot.send_message(chat_id, msg) for bot in bot_clients]
+                    try:
+                        await asyncio.gather(*tasks)
+                        await asyncio.sleep(DELAY)
+                    except Exception as e:
+                        print(f"⚠️ Server Limit Delay Triggered: {e}")
+                        await asyncio.sleep(1)
+
+        @client.on(events.NewMessage(pattern=r'\.stop'))
+        async def stop_fyt(event):
+            chat_id = event.chat_id
+            if is_fighting.get(chat_id, False):
+                is_fighting[chat_id] = False
+                await event.respond("🛑 **Bot Army Stand Down. Attack Stopped.**")
+
+async def main():
+    await start_all_bots()
+    if bot_clients:
+        print("🤖 [SYSTEM LIVE] Waiting for '.fyt' command in any Group Chat...")
+        await asyncio.gather(*[client.run_until_disconnected() for client in bot_clients])
     else:
-        await event.respond("⚠️ **Bot abhi is chat me active nahi hai.**")
+        print("❌ Error: Koi bhi bot online nahi ho paya.")
 
-print("👀 Telegram Cloud System Loading...")
-client.start()
-client.run_until_disconnected()
-
+if __name__ == '__main__':
+    asyncio.run(main())
+    
